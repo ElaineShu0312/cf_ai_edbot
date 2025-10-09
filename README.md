@@ -1,22 +1,89 @@
 # cf_ai_edbot - Ed Bot MVP 
-Try it now : [https://61b-edbot.elaineshu.workers.dev/](https://61b-edbot.elaineshu.workers.dev/)
+**Try it now!!! : [https://61b-edbot.elaineshu.workers.dev/](https://61b-edbot.elaineshu.workers.dev/)**
 
-<img width="1470" height="829" alt="Screenshot 2025-10-07 at 5 13 52 PM" src="https://github.com/user-attachments/assets/545cb85e-12f5-4644-a3ee-99c4f60d9035" />
+https://github.com/user-attachments/assets/175eef61-da29-414e-8348-24362168835b
 
-AI and RAG powered course assistant that answers student questions by searching through course webpages and providing cited responses. Built with [Cloudflare Workers AI](https://ai.cloudflare.com/) and Llama 3.3.
-This is an MVP that will later be integrated into the official course forum ([Edstem](https://edstem.org/)) to aid TAs in responding to common questions and providing citations.
+
+An AI-powered course assistant that answers student questions by semantically searching through course materials and providing cited responses. Built with [Cloudflare Workers AI](https://ai.cloudflare.com/), Vectorize, and Llama 3.3 70B.
+
+
+**This is an MVP designed to assist TAs in the [CS61B course at UC Berkeley](https://sp25.datastructur.es/) by answering common student questions with accurate citations to course materials. I envision it will later be integrated into our official course forum ([Edstem](https://edstem.org/)).**
+
+---
 
 ## Features
-* Cited Responses - provides sources to enable student agency in finding answers
-* Hallucination Prevention - only answers from known course materials
+* Semantic Search with Vectorize: uses vector embeddings to efficiently search through course materials
+* Cited Responses: provides sources to enable student agency in finding answers
+* Hallucination Prevention: only answers from known course materials
+* Clean Chat Interface (only in the MVP).
 
-## Prerequistes for running locally
-* Node.js 18+
-* Cloudflare account
-* Wrangler CLI: `npm install -g wrangler`
+## Architecture
+```
+User Question 
+    ↓
+Convert to embedding (Workers AI)
+    ↓
+Search vector database (Vectorize) → Returns top 3 relevant chunks
+    ↓
+Send chunks + question to LLM (Llama 3.3 70B)
+    ↓
+Generate cited answer
+    ↓
+Display with clickable sources
+```
+
+## Tech Stack
+* LLM: Llama 3.3 70B (via Cloudflare Workers AI)
+* Vector Search: Cloudflare Vectorize
+* Workflow: Cloudflare Workers + Hono framework
+* Frontend: Vanilla JS and CSS
+* Database: Vector database storing 800+ chunks from 13+ course pages.
+
+  
+---
+
+## Setup
+### 1. Clone and Install
+### 2. Authenticate with Cloudflare
+```
+npx wrangler login
+```
+
+### 3. Create Vector Index
+```
+npx wrangler vectorize create course-docs --dimensions=768 --metric=cosine
+```
+
+### 4. Upload your own Webpages
+Edit `scripts/upload-docs.ts` and add your own URLS:
+```typescript
+const COURSE_MATERIALS = [
+  'https://your-course-site.edu/syllabus',
+  'https://your-course-site.edu/policies',
+  // Add more URLs...
+];
+```
+
+### 5. Upload Course Materials to Vector DB
+`npx wrangler dev scripts/upload-docs.ts`
+This will scrape all URLs, split content into chunks, generate embeddings for each chunk, and upload to Vectorize!
+It may take some time to run, depending on the number of links you've added.
+
+### 6. Test locally
+```
+npm run dev
+```
+
+### 7. Deploy 
+```
+npm wrangler deploy
+```
+Your bot will now be live at `https://cf-ai-edbot.YOUR-SUBDOMAIN.workers.dev`
+
+---
 
 ## Future Enhancements
-- [ ] Semantic Search with Vectorize (for smart search!)
+- [X] Semantic Search with Vectorize (for smart search!)
 - [ ] Integrate into course [Edstem](https://edstem.org/) and link to Edstem API
 - [ ] Multi-turn conversation memory with Durable Objects
 - [ ] Admin panel for resource upload
