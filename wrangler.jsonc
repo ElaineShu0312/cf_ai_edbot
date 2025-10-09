@@ -9,12 +9,19 @@
 	"compatibility_date": "2025-10-04",
 	"observability": {
 		"enabled": true
-	}, 
-	"ai" : {
+	},
+	"ai": {
 		"binding": "AI",
 		"remote": true
-	}
-	
+	},
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "course-docs",
+			"remote": true
+		}
+	]
+
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

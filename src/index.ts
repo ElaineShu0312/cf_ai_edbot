@@ -1,57 +1,7 @@
-// src/index.ts - Simplified & Debugged Version
+// src/index.ts - With Semantic Search
 interface Env {
 	AI: any;
-}
-
-
-const COURSE_MATERIALS = [
-	'https://fa25.datastructur.es/policies/exams/',
-	'https://fa25.datastructur.es/policies/extensions/',
-	'https://fa25.datastructur.es/policies/cs47b/',
-	'https://fa25.datastructur.es/policies/academic-misconduct/',
-	'https://fa25.datastructur.es/resources/assignment-workflow/',
-	'https://fa25.datastructur.es/resources/exam-archive/',
-	'https://fa25.datastructur.es/resources/exam-study-tips/',
-	'https://fa25.datastructur.es/resources/using-ed/',
-	'https://fa25.datastructur.es/resources/using-git/',
-	'https://fa25.datastructur.es/resources/using-oh/',
-	'https://fa25.datastructur.es/resources/using-debugger/',
-	'https://fa25.datastructur.es/homeworks/hw01/',
-	'https://fa25.datastructur.es/troubleshooting/git-wtfs/',
-];
-
-async function scrapeWebpage(url: string): Promise<string> {
-	try {
-		console.log(`Fetching ${url}...`);
-		const response = await fetch(url, {
-			headers: {
-				'User-Agent': 'Mozilla/5.0 (compatible; EdBot/1.0)',
-			},
-		});
-
-		if (!response.ok) {
-			console.error(`HTTP ${response.status} for ${url}`);
-			return '';
-		}
-
-		const html = await response.text();
-		console.log(`Fetched ${html.length} characters from ${url}`);
-
-		// Simple text extraction
-		const cleanText = html
-			.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-			.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-			.replace(/<[^>]+>/g, ' ')
-			.replace(/\s+/g, ' ')
-			.trim()
-			.slice(0, 5000); 
-
-		console.log(`Cleaned to ${cleanText.length} characters`);
-		return cleanText;
-	} catch (error) {
-		console.error(`Failed to scrape ${url}:`, error);
-		return '';
-	}
+	VECTORIZE: VectorizeIndex;
 }
 
 export default {
@@ -86,23 +36,25 @@ export default {
 				}
 
 				console.log('Question:', message);
+				const ai = env.AI;
 
-				// Scrape course materials
-				console.log('Starting scrape...');
-				const scrapedContent: { url: string; content: string }[] = [];
+				// 1. Convert question to embedding
+				console.log('Generating question embedding...');
+				const questionEmbedding = await ai.run('@cf/baai/bge-base-en-v1.5', {
+					text: message,
+				});
 
-				for (const courseUrl of COURSE_MATERIALS) {
-					const content = await scrapeWebpage(courseUrl);
-					if (content) {
-						scrapedContent.push({ url: courseUrl, content });
-					}
-				}
+				// 2. Search for relevant chunks
+				console.log('Searching vector database...');
+				const matches = await env.VECTORIZE.query(questionEmbedding.data[0], {
+					topK: 3, // Get top 3 most relevant chunks
+					returnMetadata: true,
+				});
 
-				if (scrapedContent.length === 0) {
-					console.error('No content scraped!');
+				if (!matches.matches || matches.matches.length === 0) {
 					return new Response(
 						JSON.stringify({
-							answer: 'Sorry, I could not retrieve course materials. Please try again.',
+							answer: "I don't have any information about that in the course materials.",
 						}),
 						{
 							headers: { 'content-type': 'application/json' },
@@ -110,14 +62,19 @@ export default {
 					);
 				}
 
-				// Format content with clear source markers
-				const allContent = scrapedContent.map((item, idx) => `SOURCE ${idx + 1}:\n${item.content}`).join('\n\n---\n\n');
+				// 3. Build context from relevant chunks only
+				const sources = new Map();
+				const allContent = matches.matches
+					.map((match: any, idx: number) => {
+						sources.set(idx + 1, match.metadata.url);
+						return `SOURCE ${idx + 1}:\n${match.metadata.text}`;
+					})
+					.join('\n\n---\n\n');
 
-				console.log(`Total content: ${allContent.length} characters`);
+				console.log(`Found ${matches.matches.length} relevant chunks`);
 
 				// Call AI
 				console.log('Calling AI...');
-				const ai = env.AI;
 
 				const aiResponse = await ai.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
 					messages: [
@@ -125,36 +82,42 @@ export default {
 							role: 'system',
 							content: `You are a helpful course assistant. Answer questions based ONLY on the content provided below.
   
-								CRITICAL RULES:
-								1. Only use information that appears in the actual text content
-								2. If the answer is not explicitly in the provided content, say "I don't have that information in the course materials"
-								3. DO NOT infer, assume, or make up information
-								4. When citing, reference "SOURCE 1", "SOURCE 2", etc.
-								5. Be precise and factual`,
+  CRITICAL RULES:
+  1. Only use information that appears in the actual text content
+  2. If the answer is not explicitly in the provided content, say "I don't have that information in the course materials", without any citations
+  3. DO NOT infer, assume, or make up information
+  4. Mention the source once at the end like (Source: [url]), if the answer is in the sources.
+  5. Be precise, factual, and concise. Do NOT repeat yourself or over-explain.`,
 						},
 						{
 							role: 'user',
 							content: `${allContent}\n\nQuestion: ${message}\n\nAnswer based only on the content above:`,
 						},
 					],
-					max_tokens: 300,
+					max_tokens: 150,
 					temperature: 0.3, // Lower temperature = less creative/hallucination
 				});
 
 				console.log('AI Response:', aiResponse);
 
-				const answer = aiResponse.response || 'No response generated.';
+				let answer = aiResponse.response || 'No response generated.';
+
+				// Replace SOURCE references with actual URLs
+				sources.forEach((url, id) => {
+					const sourcePattern = new RegExp(`SOURCE ${id}`, 'g');
+					answer = answer.replace(sourcePattern, url);
+				});
 
 				// Include sources for transparency
-				const sources = scrapedContent.map((item, idx) => ({
-					id: idx + 1,
-					url: item.url,
+				const sourcesArray = Array.from(sources.entries()).map(([id, url]) => ({
+					id,
+					url,
 				}));
 
 				return new Response(
 					JSON.stringify({
 						answer,
-						sources,
+						sources: sourcesArray,
 					}),
 					{
 						headers: {
